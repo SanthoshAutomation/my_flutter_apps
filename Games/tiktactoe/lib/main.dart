@@ -1,3 +1,4 @@
+import 'dart:math';
 import 'package:flutter/material.dart';
 
 void main() {
@@ -39,12 +40,20 @@ class _TicTacToeGameState extends State<TicTacToeGame>
   int _scoreO = 0;
   int _draws = 0;
 
+  // Coin flip state
+  bool _showCoinFlip = true;
+  bool _coinFlipping = false;
+  bool? _coinHeads; // null = not flipped yet
+  String _firstPlayer = 'X'; // who goes first this game
+
   late List<AnimationController> _cellControllers;
   late List<Animation<double>> _cellAnimations;
   late AnimationController _winController;
   late Animation<double> _winAnimation;
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
+  late AnimationController _coinController;
+  late Animation<double> _coinAnimation;
 
   @override
   void initState() {
@@ -78,6 +87,15 @@ class _TicTacToeGameState extends State<TicTacToeGame>
     _pulseAnimation = Tween<double>(begin: 1.0, end: 1.06).animate(
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
+
+    _coinController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1200),
+    );
+    _coinAnimation = CurvedAnimation(
+      parent: _coinController,
+      curve: Curves.easeInOut,
+    );
   }
 
   @override
@@ -87,7 +105,33 @@ class _TicTacToeGameState extends State<TicTacToeGame>
     }
     _winController.dispose();
     _pulseController.dispose();
+    _coinController.dispose();
     super.dispose();
+  }
+
+  void _flipCoin() {
+    if (_coinFlipping) return;
+    setState(() {
+      _coinFlipping = true;
+      _coinHeads = null;
+    });
+    _coinController.forward(from: 0).then((_) {
+      final result = Random().nextBool();
+      setState(() {
+        _coinHeads = result;
+        _firstPlayer = result ? 'X' : 'O';
+        _coinFlipping = false;
+      });
+    });
+  }
+
+  void _startGameAfterCoinFlip() {
+    setState(() {
+      _showCoinFlip = false;
+      _currentPlayer = _firstPlayer;
+      _statusMessage = "Player $_firstPlayer's Turn";
+      _coinHeads = null;
+    });
   }
 
   void _handleTap(int index) {
@@ -148,10 +192,12 @@ class _TicTacToeGameState extends State<TicTacToeGame>
   }
 
   void _resetGame() {
+    // Alternate who goes first each new game
+    _firstPlayer = _firstPlayer == 'X' ? 'O' : 'X';
     setState(() {
       _board = List.filled(9, '');
-      _currentPlayer = 'X';
-      _statusMessage = "Player X's Turn";
+      _currentPlayer = _firstPlayer;
+      _statusMessage = "Player $_firstPlayer's Turn";
       _gameOver = false;
       _winningCells = [];
     });
@@ -166,8 +212,18 @@ class _TicTacToeGameState extends State<TicTacToeGame>
       _scoreX = 0;
       _scoreO = 0;
       _draws = 0;
+      _board = List.filled(9, '');
+      _gameOver = false;
+      _winningCells = [];
+      _showCoinFlip = true;
+      _coinHeads = null;
+      _coinFlipping = false;
     });
-    _resetGame();
+    for (final c in _cellControllers) {
+      c.reset();
+    }
+    _winController.reset();
+    _coinController.reset();
   }
 
   Color get _currentPlayerColor =>
@@ -176,34 +232,278 @@ class _TicTacToeGameState extends State<TicTacToeGame>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              Color(0xFF1A1A2E),
-              Color(0xFF16213E),
-              Color(0xFF0F3460),
+      body: Stack(
+        children: [
+          Container(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Color(0xFF1A1A2E),
+                  Color(0xFF16213E),
+                  Color(0xFF0F3460),
+                ],
+              ),
+            ),
+            child: SafeArea(
+              child: Column(
+                children: [
+                  const SizedBox(height: 20),
+                  _buildTitle(),
+                  const SizedBox(height: 20),
+                  _buildScoreBoard(),
+                  const SizedBox(height: 24),
+                  _buildStatusBanner(),
+                  const SizedBox(height: 24),
+                  _buildBoard(),
+                  const SizedBox(height: 30),
+                  _buildButtons(),
+                  const SizedBox(height: 20),
+                ],
+              ),
+            ),
+          ),
+          if (_showCoinFlip) _buildCoinFlipOverlay(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCoinFlipOverlay() {
+    return Container(
+      color: Colors.black.withValues(alpha: 0.85),
+      child: SafeArea(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            ShaderMask(
+              shaderCallback: (bounds) => const LinearGradient(
+                colors: [Color(0xFFFFE66D), Color(0xFFFF6B9D)],
+              ).createShader(bounds),
+              child: const Text(
+                'COIN FLIP',
+                style: TextStyle(
+                  fontSize: 32,
+                  fontWeight: FontWeight.w900,
+                  color: Colors.white,
+                  letterSpacing: 6,
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Decide who plays first!',
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.6),
+                fontSize: 14,
+                letterSpacing: 1,
+              ),
+            ),
+            const SizedBox(height: 48),
+            _buildCoin(),
+            const SizedBox(height: 32),
+            if (_coinHeads == null && !_coinFlipping)
+              _buildCoinButton(
+                label: 'Flip Coin!',
+                icon: Icons.autorenew_rounded,
+                onTap: _flipCoin,
+                gradient: const LinearGradient(
+                  colors: [Color(0xFFFFE66D), Color(0xFFFF8E53)],
+                ),
+              )
+            else if (_coinFlipping)
+              const SizedBox(
+                width: 40,
+                height: 40,
+                child: CircularProgressIndicator(
+                  color: Color(0xFFFFE66D),
+                  strokeWidth: 3,
+                ),
+              )
+            else ...[
+              _buildCoinResult(),
+              const SizedBox(height: 24),
+              _buildCoinButton(
+                label: "Let's Play!",
+                icon: Icons.play_arrow_rounded,
+                onTap: _startGameAfterCoinFlip,
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF4ECDC4), Color(0xFF44A8FF)],
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextButton(
+                onPressed: _flipCoin,
+                child: Text(
+                  'Flip Again',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.5),
+                    fontSize: 13,
+                  ),
+                ),
+              ),
             ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCoin() {
+    return AnimatedBuilder(
+      animation: _coinAnimation,
+      builder: (context, child) {
+        // Simulate 3D flip: scaleX goes 1 → 0 → 1 over the animation
+        final t = _coinAnimation.value;
+        final scaleX = (t < 0.5) ? (1.0 - 2 * t).abs() : (2 * t - 1.0);
+        final showHeads = (t < 0.5) ? true : (_coinHeads ?? true);
+
+        return Transform(
+          alignment: Alignment.center,
+          transform: Matrix4.identity()..scale(scaleX, 1.0, 1.0),
+          child: Container(
+            width: 140,
+            height: 140,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: showHeads
+                    ? [const Color(0xFFFFD700), const Color(0xFFFFA500)]
+                    : [const Color(0xFFB0BEC5), const Color(0xFF78909C)],
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: (showHeads
+                          ? const Color(0xFFFFD700)
+                          : const Color(0xFF90A4AE))
+                      .withValues(alpha: 0.5),
+                  blurRadius: 24,
+                  spreadRadius: 4,
+                ),
+                const BoxShadow(
+                  color: Colors.black38,
+                  blurRadius: 12,
+                  offset: Offset(4, 6),
+                ),
+              ],
+              border: Border.all(
+                color: showHeads
+                    ? const Color(0xFFFFF9C4)
+                    : const Color(0xFFECEFF1),
+                width: 3,
+              ),
+            ),
+            child: Center(
+              child: Text(
+                showHeads ? 'H' : 'T',
+                style: TextStyle(
+                  fontSize: 52,
+                  fontWeight: FontWeight.w900,
+                  color: showHeads
+                      ? const Color(0xFF7B3F00)
+                      : const Color(0xFF263238),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildCoinResult() {
+    final heads = _coinHeads ?? true;
+    return Column(
+      children: [
+        Text(
+          heads ? 'HEADS!' : 'TAILS!',
+          style: TextStyle(
+            color: heads ? const Color(0xFFFFD700) : const Color(0xFFB0BEC5),
+            fontSize: 28,
+            fontWeight: FontWeight.w900,
+            letterSpacing: 4,
           ),
         ),
-        child: SafeArea(
-          child: Column(
-            children: [
-              const SizedBox(height: 20),
-              _buildTitle(),
-              const SizedBox(height: 20),
-              _buildScoreBoard(),
-              const SizedBox(height: 24),
-              _buildStatusBanner(),
-              const SizedBox(height: 24),
-              _buildBoard(),
-              const SizedBox(height: 30),
-              _buildButtons(),
-              const SizedBox(height: 20),
-            ],
+        const SizedBox(height: 12),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(20),
+            color: Colors.white.withValues(alpha: 0.1),
+            border: Border.all(
+              color: Colors.white.withValues(alpha: 0.2),
+            ),
           ),
+          child: RichText(
+            textAlign: TextAlign.center,
+            text: TextSpan(
+              style: const TextStyle(fontSize: 16, color: Colors.white),
+              children: [
+                TextSpan(
+                  text: 'Player ',
+                  style: TextStyle(color: Colors.white.withValues(alpha: 0.8)),
+                ),
+                TextSpan(
+                  text: _firstPlayer,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w900,
+                    fontSize: 20,
+                    color: _firstPlayer == 'X'
+                        ? const Color(0xFFFF6B9D)
+                        : const Color(0xFF4ECDC4),
+                  ),
+                ),
+                TextSpan(
+                  text: ' goes first!',
+                  style: TextStyle(color: Colors.white.withValues(alpha: 0.8)),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildCoinButton({
+    required String label,
+    required IconData icon,
+    required VoidCallback onTap,
+    required LinearGradient gradient,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 36, vertical: 16),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(18),
+          gradient: gradient,
+          boxShadow: [
+            BoxShadow(
+              color: gradient.colors.first.withValues(alpha: 0.45),
+              blurRadius: 16,
+              offset: const Offset(0, 5),
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: Colors.white, size: 22),
+            const SizedBox(width: 10),
+            Text(
+              label,
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+                fontSize: 17,
+                letterSpacing: 0.5,
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -268,7 +568,7 @@ class _TicTacToeGameState extends State<TicTacToeGame>
         const SizedBox(height: 6),
         Text(
           '$score',
-          style: TextStyle(
+          style: const TextStyle(
             color: Colors.white,
             fontSize: 32,
             fontWeight: FontWeight.w900,
